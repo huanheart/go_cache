@@ -1,4 +1,4 @@
-package Day2
+package geecache
 
 import (
 	"fmt"
@@ -13,7 +13,8 @@ type Group struct {
 	mainCache cache
 }
 
-// 定义了一个接口
+// 定义了一个回调函数的接口
+// 这个回调函数主要进行一个返回数据的作用，可以将当前函数所在的作用域的东西进行一个返回
 type Getter interface {
 	Get(key string) ([]byte, error) //需要实现一个这个函数
 }
@@ -78,7 +79,7 @@ func (g *Group) load(key string) (value ByteView, err error) {
 }
 
 func (g *Group) getLocally(key string) (ByteView, error) {
-	//调用回调函数Get,触发没有key缓存对应的回调函数
+	//调用回调函数,触发没有key缓存对应的回调函数
 	//这个回调函数挺关键的
 	bytes, err := g.getter.Get(key)
 	if err != nil {
