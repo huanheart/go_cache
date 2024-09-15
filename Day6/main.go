@@ -1,7 +1,7 @@
 package main
 
 import (
-	"awesomeProject2/Day7/geecache"
+	"awesomeProject2/Day6/geecache"
 	"flag"
 	"fmt"
 	"log"

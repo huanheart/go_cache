@@ -1,8 +1,10 @@
 package geecache
 
 import (
-	"awesomeProject2/Day5/geecache/consistenthash"
+	"awesomeProject2/Day7/geecache/consistenthash"
+	pb "awesomeProject2/Day7/geecache/geecachepb"
 	"fmt"
+	"google.golang.org/protobuf/proto"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -62,14 +64,21 @@ func (p *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	//本地方法组找到对应的缓存，如果没有内部会根据回调函数返回的数据返回对应的数据，然后将其数据放入到对应的缓存结构中
 	view, err := group.Get(key)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	//将值作为原始消息写入响应主体。
+
+	body, err := proto.Marshal(&pb.Response{Value: view.ByteSlice()})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	//这意味着你告诉客户端（例如浏览器），返回的数据是二进制流，而不是特定格式的文本或其他类型的数据。这通常用于文件下载或传输未知类型的数据。
 	w.Header().Set("Content-Type", "application/octet-stream")
 	//复制一个切片给到用户
 	//w.Write() 方法将这个字节切片的内容写入到 HTTP 响应体中。
-	w.Write(view.ByteSlice())
+	w.Write(body)
 
 }
 
@@ -80,28 +89,31 @@ type httpGetter struct {
 
 // 发送方法，并接收返回值进行返回
 // baseURL 表示将要访问的远程节点的地址
-func (h *httpGetter) Get(group string, key string) ([]byte, error) {
+func (h *httpGetter) Get(in *pb.Request, out *pb.Response) error {
 	u := fmt.Sprintf(
 		"%v%v/%v", //这里 /不要漏掉了
 		h.baseURL,
-		url.QueryEscape(group),
-		url.QueryEscape(key),
+		url.QueryEscape(in.GetGroup()),
+		url.QueryEscape(in.GetKey()),
 	)
 	//阻塞调用Get方法
 	res, err := http.Get(u)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	//关闭方法体
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("server returned %v", res.Status)
+		return fmt.Errorf("server returned %v", res.Status)
 	}
 	bytes, err := ioutil.ReadAll(res.Body)
 	if err != nil {
-		return nil, fmt.Errorf("reading response body %v", err)
+		return fmt.Errorf("reading response body %v", err)
 	}
-	return bytes, nil
+	if err = proto.Unmarshal(bytes, out); err != nil {
+		return fmt.Errorf("decoding response body: %v", err)
+	}
+	return nil
 }
 
 // 定义一个没有用的对象，查看当前类型可以创建，即所有接口是否被正确实现
@@ -109,7 +121,7 @@ func (h *httpGetter) Get(group string, key string) ([]byte, error) {
 var _ PeerGetter = (*httpGetter)(nil)
 
 // 将一些真实结点进行设置，有种分布式存储那个项目地感觉，
-//每个机器都有着其他结点的信息，即peer数组
+// 每个机器都有着其他结点的信息，即peer数组
 // 以及通信的通道
 func (p *HTTPPool) Set(peers ...string) {
 	p.mu.Lock()

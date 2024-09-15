@@ -1,6 +1,8 @@
 package geecache
 
 import (
+	pb "awesomeProject2/Day7/geecache/geecachepb"
+	"awesomeProject2/Day7/geecache/singleflight"
 	"fmt"
 	"log"
 	"sync"
@@ -13,7 +15,8 @@ type Group struct {
 	mainCache cache
 	//这里并没有实现对应的接口函数，在go中，只需要保证使用这个对象的时候，里面的接口被定义了1就行
 	//但是c++需要编译时检查，固然需要一开始就实现
-	peers PeerPicker
+	peers  PeerPicker
+	loader *singleflight.Group
 }
 
 // 定义了一个回调函数的接口
@@ -48,6 +51,7 @@ func NewGroup(name string, cacheBytes int64, getter Getter) *Group {
 		name:      name,
 		getter:    getter,
 		mainCache: cache{cacheBytes: cacheBytes},
+		loader:    &singleflight.Group{},
 	}
 	groups[name] = g
 	return g
@@ -105,25 +109,40 @@ func (g *Group) RegisterPeers(peers PeerPicker) {
 }
 
 func (g *Group) load(key string) (value ByteView, err error) {
-	if g.peers != nil {
-		//peers.PickPeer(key)这个函数我在想是不是用来判断是否是映射到本机结点?
-		//如果映射到自己结点上这个key，那么就直接调用getLocally?去对应"磁盘"中拿取数据
+	//使用Do保证并发情况下只有一个协程去网络请求，其他协程直接等待
+	viewi, err := g.loader.Do(key, func() (interface{}, error) {
+		if g.peers != nil {
+			//peers.PickPeer(key)这个函数我在想是不是用来判断是否是映射到本机结点?
+			//如果映射到自己结点上这个key，那么就直接调用getLocally?去对应"磁盘"中拿取数据
 
-		if peer, ok := g.peers.PickPeer(key); ok {
-			if value, err = g.getFromPeer(peer, key); err == nil {
-				return value, nil
+			if peer, ok := g.peers.PickPeer(key); ok {
+				if value, err = g.getFromPeer(peer, key); err == nil {
+					return value, nil
+				}
+				log.Println("[GeeCache] Failed to get from peer", err)
 			}
-			log.Println("[GeeCache] Failed to get from peer", err)
 		}
+		//去对应"磁盘"中拿取数据
+		return g.getLocally(key)
+	})
+
+	//将对应接口进行转换并且返回回去
+	if err == nil {
+		return viewi.(ByteView), nil
 	}
-	//去对应"磁盘"中拿取数据
-	return g.getLocally(key)
+	return
+
 }
 
 func (g *Group) getFromPeer(peer PeerGetter, key string) (ByteView, error) {
-	bytes, err := peer.Get(g.name, key)
+	req := &pb.Request{
+		Group: g.name,
+		Key:   key,
+	}
+	res := &pb.Response{}
+	err := peer.Get(req, res)
 	if err != nil {
 		return ByteView{}, err
 	}
-	return ByteView{b: bytes}, nil
+	return ByteView{b: res.Value}, nil
 }

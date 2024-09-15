@@ -31,7 +31,7 @@ func startCacheServer(addr string, addrs []string, gee *geecache.Group) {
 	peers := geecache.NewHTTPPool(addr)
 	//将对应结点放入到哈希环上
 	peers.Set(addrs...)
-	//实现了一个多态，因为HHTTPPool实现了PeerPicker的方法
+	//实现了一个多态，因为HTTPPool实现了PeerPicker的方法
 	gee.RegisterPeers(peers)
 	log.Println("geecache is running at", addr)
 	//进行监听，对应端口,开启服务
@@ -41,7 +41,7 @@ func startCacheServer(addr string, addrs []string, gee *geecache.Group) {
 // APIServer用于与用户真正进行交互
 func startAPIServer(apiAddr string, gee *geecache.Group) {
 	//处理api这个接口上的所有内容,用于监听到对应内容所触发的回调
-	http.Handle("api", http.HandlerFunc(
+	http.Handle("/api", http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			key := r.URL.Query().Get("key") //获取对应的key参数，即获取url上面的key参数
 			//获取对应的缓存
